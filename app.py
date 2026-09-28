@@ -153,17 +153,37 @@ with tab2:
     common_subjs = list(subjs1.intersection(subjs2))
 
     if common_subjs:
+        # 1. Показываем текст, какие именно предметы совпали, для отладки
+        st.write(f"**Найдено общих предметов:** {len(common_subjs)}")
+        
         avg_prog_subj = df_combined[df_combined['Предмет'].isin(common_subjs)].groupby(['Направление', 'Предмет'])['Балл'].mean().reset_index()
         
-        # Используем line_polar вместо radar
-        fig4 = px.line_polar(avg_prog_subj, r='Балл', theta='Предмет', color='Направление', 
-                             line_close=True, # Замыкает линии графика
-                             title="Сравнение успеваемости по смежным предметам")
-        
-        # Добавляем заливку цветом для красоты
-        fig4.update_traces(fill='toself') 
-        
-        st.plotly_chart(fig4, use_container_width=True)
+        # 2. Проверяем, что итоговая таблица не пустая
+        if not avg_prog_subj.empty:
+            fig4 = px.line_polar(avg_prog_subj, r='Балл', theta='Предмет', color='Направление', 
+                                 line_close=True, 
+                                 title="Сравнение успеваемости по смежным предметам")
+            fig4.update_traces(fill='toself')
+            
+            # 3. Жестко фиксируем шкалу от 0 до 100, чтобы график не исчезал
+            fig4.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, range=[0, 100])
+                ),
+                showlegend=True
+            )
+            
+            st.plotly_chart(fig4, use_container_width=True)
+            
+            # Дополнительно выводим сами данные под графиком (можно будет убрать позже)
+            with st.expander("Посмотреть данные графика"):
+                st.dataframe(avg_prog_subj, hide_index=True)
+        else:
+            st.warning("Данные по общим предметам найдены, но значения баллов отсутствуют.")
+    else:
+        st.info("Нет общих предметов для построения радарной диаграммы. Проверьте, нет ли опечаток или лишних пробелов в названиях дисциплин.")
+
+
 with tab3:
     st.header(f"Анализ целевого студента: {target_student}")
     target_data = df_prog1[df_prog1['ФИО'] == target_student]
