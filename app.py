@@ -1,3 +1,14 @@
+<Image>
+
+<Carousel>
+
+Отличная корректировка, это делает логику приложения абсолютно соответствующей текущим реалиям 2026 года. Мы исключаем 2022 год (выпускников) и 2026 год (первокурсников, у которых еще нет закрытых сессий). 
+
+В список выбора добавлены года поступления **2023, 2024 и 2025**. Также я обновил генератор данных: теперь скрипт понимает, что у поступивших в 2025 году закрыто только 2 семестра, у поступивших в 2024 — 4 семестра, а у 2023 года — 6 семестров.
+
+Скопируйте обновленный код, замените им содержимое файла `app.py` на GitHub и закоммитьте изменения:
+
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -49,24 +60,28 @@ def fetch_student_data(year, program):
 def generate_mock_data(year, program):
     np.random.seed(hash(program + str(year)) % 10000)
     
-    # Формируем реалистичные названия групп на основе года (например, 2301, 2302)
     short_year = str(year)[-2:]
-    num_groups = np.random.randint(2, 6) # От 2 до 5 групп на потоке
+    num_groups = np.random.randint(2, 6) 
     groups = [f"{program}-{short_year}0{i}" for i in range(1, num_groups + 1)]
     
     subjects_pool = ["Математика", "Программирование", "Экономика", "Иностранный язык", "Философия", "Базы данных", "Алгоритмы"]
     subjects = np.random.choice(subjects_pool, 5, replace=False)
     
-    # Количество семестров зависит от года поступления
-    if year == "2024": semesters = [1, 2]
-    elif year == "2023": semesters = [1, 2, 3, 4]
-    else: semesters = [1, 2, 3, 4, 5, 6]
+    # Корректировка семестров в зависимости от года поступления с учетом текущего 2026 года
+    if year == "2025": 
+        semesters = [1, 2] # 2 курс
+    elif year == "2024": 
+        semesters = [1, 2, 3, 4] # 3 курс
+    elif year == "2023": 
+        semesters = [1, 2, 3, 4, 5, 6] # 4 курс
+    else: 
+        semesters = [1, 2]
     
     data = []
     for group in groups:
-        num_students = np.random.randint(15, 30) # Разное количество студентов в группах
+        num_students = np.random.randint(15, 30) 
         for i in range(1, num_students + 1):
-            is_hidden = np.random.rand() < 0.15 # 15% студентов скрыли свои данные
+            is_hidden = np.random.rand() < 0.15 
             
             student_name = "информации нет" if is_hidden else f"Студент {i} ({group})"
             base_score = np.random.uniform(50, 95)
@@ -74,7 +89,7 @@ def generate_mock_data(year, program):
             for sem in semesters:
                 for subj in subjects:
                     if is_hidden:
-                        score = None # Баллы скрыты
+                        score = None 
                     else:
                         score = min(100, max(0, base_score + np.random.normal(0, 10)))
                     
@@ -94,19 +109,19 @@ def generate_mock_data(year, program):
 # ==========================================
 st.sidebar.header("Параметры анализа")
 
-years = ["2022", "2023", "2024"]
-programs = ["ПМ", "БИ", "Менеджмент", "Экономика"] # Заменили ПМИ на ПМ
+# Актуальные года обучения (без 1 курса и выпускников)
+years = ["2023", "2024", "2025"]
+programs = ["ПМ", "БИ", "Менеджмент", "Экономика"] 
 
-year1 = st.sidebar.selectbox("Год поступления 1", years, index=1)
+year1 = st.sidebar.selectbox("Год поступления 1", years, index=2) # По умолчанию 2025
 prog1 = st.sidebar.selectbox("Направление обучения 1", programs, index=0)
 
-year2 = st.sidebar.selectbox("Год поступления 2 (для сравнения)", years, index=2)
+year2 = st.sidebar.selectbox("Год поступления 2 (для сравнения)", years, index=1) # По умолчанию 2024
 prog2 = st.sidebar.selectbox("Направление обучения 2", programs, index=0)
 
 df_prog1 = fetch_student_data(year1, prog1)
 df_prog2 = fetch_student_data(year2, prog2)
 
-# Убираем "информации нет" из списка выбора целевого студента
 valid_students_prog1 = df_prog1[df_prog1['ФИО'] != "информации нет"]['ФИО'].unique()
 target_student = st.sidebar.selectbox("Целевой студент (Направление 1)", valid_students_prog1)
 
@@ -126,10 +141,8 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "Сравнение студентов"
 ])
 
-# Объединенный датафрейм для общих нужд
 df_all = pd.concat([df_prog1, df_prog2]).drop_duplicates()
 
-# Вкладка 1: Сравнение групп и успеваемости по пересекающимся семестрам
 with tab1:
     st.header("Сравнение конкретных групп")
     
@@ -144,7 +157,6 @@ with tab1:
     data_g1 = df_all[df_all['Группа'] == group_a]
     data_g2 = df_all[df_all['Группа'] == group_b]
     
-    # Ищем пересекающиеся семестры
     sems1 = set(data_g1['Семестр'].dropna().unique())
     sems2 = set(data_g2['Семестр'].dropna().unique())
     intersecting_sems = sorted(list(sems1.intersection(sems2)))
@@ -154,18 +166,15 @@ with tab1:
     else:
         st.write(f"**Пересекающиеся семестры:** {', '.join(map(str, intersecting_sems))}")
         
-        # Очищаем от пустых баллов ("информации нет") для расчетов средних значений
         valid_g1 = data_g1[(data_g1['Семестр'].isin(intersecting_sems)) & (data_g1['Балл'].notna())]
         valid_g2 = data_g2[(data_g2['Семестр'].isin(intersecting_sems)) & (data_g2['Балл'].notna())]
         valid_combined_groups = pd.concat([valid_g1, valid_g2])
         
-        # График по семестрам
         avg_sem_groups = valid_combined_groups.groupby(['Семестр', 'Группа'])['Балл'].mean().reset_index()
         fig_sem_groups = px.bar(avg_sem_groups, x='Семестр', y='Балл', color='Группа', barmode='group', 
                                 title="Средняя успеваемость по пересекающимся семестрам")
         st.plotly_chart(fig_sem_groups, use_container_width=True)
         
-        # График по предметам
         subjs1 = set(valid_g1['Предмет'].unique())
         subjs2 = set(valid_g2['Предмет'].unique())
         intersecting_subjs = sorted(list(subjs1.intersection(subjs2)))
@@ -181,7 +190,6 @@ with tab1:
         else:
             st.info("У выбранных групп нет общих предметов в пересекающихся семестрах.")
             
-        # Информационная панель состава групп
         with st.expander("Посмотреть состав групп и скрытых студентов"):
             c1, c2 = st.columns(2)
             with c1:
@@ -193,7 +201,6 @@ with tab1:
 
 with tab2:
     st.header("Сравнение направлений в целом")
-    # Пересекающиеся семестры для целых направлений
     prog_sems1 = set(df_prog1['Семестр'].dropna().unique())
     prog_sems2 = set(df_prog2['Семестр'].dropna().unique())
     prog_intersecting = sorted(list(prog_sems1.intersection(prog_sems2)))
@@ -206,7 +213,6 @@ with tab2:
                       title="Сравнение средних баллов направлений по общим семестрам")
         st.plotly_chart(fig3, use_container_width=True)
         
-        # Радарная диаграмма
         prog_subjs1 = set(df_prog1['Предмет'].dropna().unique())
         prog_subjs2 = set(df_prog2['Предмет'].dropna().unique())
         prog_common_subjs = list(prog_subjs1.intersection(prog_subjs2))
