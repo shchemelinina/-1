@@ -153,14 +153,17 @@ with tab2:
     common_subjs = list(subjs1.intersection(subjs2))
 
     if common_subjs:
-        avg_prog_subj = df_combined[df_combined['Предмет'].isin(common_subjs)].groupby(['Направление', 'Предмет'])[
-            'Балл'].mean().reset_index()
-        fig4 = px.radar(avg_prog_subj, r='Балл', theta='Предмет', color='Направление',
-                        title="Сравнение успеваемости по смежным предметам")
+        avg_prog_subj = df_combined[df_combined['Предмет'].isin(common_subjs)].groupby(['Направление', 'Предмет'])['Балл'].mean().reset_index()
+        
+        # Используем line_polar вместо radar
+        fig4 = px.line_polar(avg_prog_subj, r='Балл', theta='Предмет', color='Направление', 
+                             line_close=True, # Замыкает линии графика
+                             title="Сравнение успеваемости по смежным предметам")
+        
+        # Добавляем заливку цветом для красоты
+        fig4.update_traces(fill='toself') 
+        
         st.plotly_chart(fig4, use_container_width=True)
-    else:
-        st.info("Нет общих предметов для построения радарной диаграммы.")
-
 with tab3:
     st.header(f"Анализ целевого студента: {target_student}")
     target_data = df_prog1[df_prog1['ФИО'] == target_student]
