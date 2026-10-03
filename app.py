@@ -11,7 +11,7 @@ from datetime import timedelta
 # ==========================================
 st.set_page_config(page_title="Аналитика БРС", layout="wide")
 
-BASE_URL = "https://rating.unecon.ru/index.php"
+BASE_URL = "https://rating.unecon.ru"
 CACHE_TTL = timedelta(days=30)
 REQUEST_TIMEOUT = 1.5 
 
