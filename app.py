@@ -5,86 +5,141 @@ import requests
 from bs4 import BeautifulSoup
 import plotly.express as px
 from datetime import timedelta
+import re
 
 # ==========================================
 # 1. КОНФИГУРАЦИЯ И НАСТРОЙКИ
 # ==========================================
 st.set_page_config(page_title="Аналитика БРС", layout="wide")
 
-BASE_URL = "https://rating.unecon.ru"
+BASE_URL = "https://rating.unecon.ru/index.php"
 CACHE_TTL = timedelta(days=30)
 REQUEST_TIMEOUT = 1.5 
 
 # ==========================================
 # 2. МОДУЛЬ ПАРСИНГА С КЭШИРОВАНИЕМ
 # ==========================================
+
 @st.cache_data(ttl=CACHE_TTL)
 def fetch_student_data(year, program):
-    """
-    Выполняет реальный парсинг сайта БРС. 
-    Кэширует результат на месяц для предотвращения повторных запросов.
-    """
     data = []
     try:
         session = requests.Session()
-        # В зависимости от реальных GET-параметров сайта БРС СПБГЭУ, 
-        # возможно потребуется адаптировать ключи 'year' и 'program' (например, 'kurs', 'fak')
-        response = session.get(BASE_URL, params={'year': year, 'program': program})
+        
+        # Шаг 1: Запрашиваем базовую страницу (параметры нужно будет подогнать под ваши фильтры на сайте)
+        # В HTML видно, что факультет = f, год = y, направление = up. 
+        # Если вы пока не автоматизировали сбор ссылок на группы со стартовой страницы, 
+        # вы можете временно передавать ссылки на группы напрямую.
+        response = session.get(BASE_URL, params={'y': year, 'f': 1}) # Пример параметров
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Собираем ссылки ТОЛЬКО на существующие группы
-        group_links = soup.find_all('a', class_='group-link')
+        # Получаем ссылки на группы (в HTML это <a> с классом 'option' в блоке Группа)
+        group_filter = soup.find(lambda tag: tag.name == "b" and "Группа" in tag.text)
+        if not group_filter:
+            st.error("Не удалось найти список групп на странице.")
+            return pd.DataFrame(data)
+            
+        group_options = group_filter.find_next('div', class_='options').find_all('a', class_='option')
         
-        for link in group_links:
-            group_url = link.get('href')
-            group_name = link.text.strip()
-            
-            # Делаем абсолютную ссылку, если она относительная
-            if not group_url.startswith('http'):
-                group_url = f"https://rating.unecon.ru/{group_url}"
+        # Фильтруем служебные кнопки типа "Не выбрано" или "Все группы"
+        groups = []
+        for opt in group_options:
+            href = opt.get('href')
+            if href and 'g=none' not in href and 'g=all' not in href:
+                full_url = href if href.startswith('http') else f"https://rating.unecon.ru/{href}"
+                groups.append(full_url)
 
-            time.sleep(REQUEST_TIMEOUT) # Таймаут между запросами групп
-            
+        # Шаг 2: Обходим каждую группу
+        for group_url in groups:
+            time.sleep(REQUEST_TIMEOUT) 
             group_resp = session.get(group_url)
             group_resp.encoding = 'utf-8'
             group_soup = BeautifulSoup(group_resp.text, 'html.parser')
             
-            # Парсинг таблицы успеваемости группы
-            table = group_soup.find('table')
-            if not table:
-                continue
-                
-            rows = table.find_all('tr')[1:] # Пропускаем заголовок
-            for row in rows:
-                cols = row.find_all(['td', 'th'])
-                if len(cols) < 3: 
+            # Шаг 3: Чтобы получить ВСЕ семестры для дашборда, ищем ссылки на семестры в фильтре
+            sem_filter = group_soup.find(lambda tag: tag.name == "b" and "Семестр" in tag.text)
+            semester_urls = [group_url] # По умолчанию текущая страница
+            
+            if sem_filter:
+                options_div = sem_filter.find_next('div', class_='options')
+                if options_div:
+                    semester_urls = []
+                    for a in options_div.find_all('a', class_='option'):
+                        href = a.get('href')
+                        if href:
+                            sem_url = href if href.startswith('http') else f"https://rating.unecon.ru/{href}"
+                            semester_urls.append(sem_url)
+            
+            # Шаг 4: Парсим данные с каждой страницы семестра для конкретной группы
+            for sem_url in semester_urls:
+                if sem_url != group_url:
+                    time.sleep(REQUEST_TIMEOUT) # Таймаут между страницами семестров
+                    sem_resp = session.get(sem_url)
+                    sem_resp.encoding = 'utf-8'
+                    sem_soup = BeautifulSoup(sem_resp.text, 'html.parser')
+                else:
+                    sem_soup = group_soup
+                    
+                table = sem_soup.find('table')
+                if not table:
                     continue
                 
-                student_name = cols[0].text.strip()
-                # Проверка на скрытое ФИО
-                if not student_name or "скрыто" in student_name.lower() or "*****" in student_name:
-                    student_name = "информации нет"
+                # Достаем название группы (из <h3>Группа: ПМ-2302<br></h3>)
+                group_header = sem_soup.find('h3')
+                group_name = group_header.text.replace('Группа:', '').strip() if group_header else "Неизвестно"
                 
-                # Здесь необходимо адаптировать индексы столбцов (cols) под структуру таблицы БРС.
-                # Пример логики (нужно подставить реальные индексы столбцов семестра, предмета и балла):
-                try:
-                    semester = int(cols[1].text.strip())
-                    subject = cols[2].text.strip()
-                    score_text = cols[3].text.strip()
-                    score = float(score_text) if score_text.replace('.', '', 1).isdigit() else None
-                except (ValueError, IndexError):
-                    continue
+                # Достаем текущий семестр (например "4 семестр")
+                current_sem_filter = sem_soup.find(lambda tag: tag.name == "b" and "Семестр" in tag.text)
+                semester_num = 1
+                if current_sem_filter:
+                    sem_text = current_sem_filter.find_next('div', class_='selected_text').text
+                    match = re.search(r'(\d+)', sem_text)
+                    if match:
+                        semester_num = int(match.group(1))
 
-                data.append({
-                    "Год": year,
-                    "Направление": program,
-                    "Группа": group_name,
-                    "ФИО": student_name,
-                    "Семестр": semester,
-                    "Предмет": subject,
-                    "Балл": score
-                })
+                # Парсим дисциплины (предметы в столбцах, вторая строка в thead)
+                thead = table.find('thead')
+                header_rows = thead.find_all('tr')
+                if len(header_rows) < 2: continue
+                
+                subject_headers = header_rows[1].find_all('th')
+                subjects = []
+                for th in subject_headers:
+                    # Из атрибута title="Безопасность жизнедеятельности (Зачет)" достаем только название
+                    full_title = th.get('title', th.text)
+                    subj_name = full_title.split('(')[0].strip() if '(' in full_title else full_title
+                    subjects.append(subj_name)
+                    
+                # Парсим студентов и оценки из tbody
+                tbody = table.find('tbody')
+                for row in tbody.find_all('tr'):
+                    cols = row.find_all('td')
+                    if len(cols) < 3:
+                        continue
+                        
+                    # 0-я колонка - номер, 1-я колонка - ФИО
+                    student_name = cols[1].text.strip()
+                    if not student_name:
+                        student_name = "информации нет" # Студент скрыл данные
+                        
+                    # Сопоставляем баллы с предметами (оценки начинаются со 2-го индекса)
+                    for i, subj in enumerate(subjects):
+                        col_idx = i + 2
+                        if col_idx < len(cols) - 1: # Игнорируем последнюю колонку "Сумма баллов"
+                            score_text = cols[col_idx].text.strip()
+                            score = float(score_text) if score_text.replace('.', '', 1).isdigit() else None
+                            
+                            if score is not None:
+                                data.append({
+                                    "Год": year,
+                                    "Направление": program,
+                                    "Группа": group_name,
+                                    "ФИО": student_name,
+                                    "Семестр": semester_num,
+                                    "Предмет": subj,
+                                    "Балл": score
+                                })
                 
     except Exception as e:
         st.error(f"Ошибка при парсинге данных: {e}")
