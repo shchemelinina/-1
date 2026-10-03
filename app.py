@@ -181,7 +181,7 @@ def fetch_student_data(year, program):
     except Exception as e:
         st.error(f"Ошибка при парсинге данных: {e}")
     
-    return pd.DataFrame(data)
+    return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
 
 # ==========================================
 # 3. ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ (БОКОВАЯ ПАНЕЛЬ)
