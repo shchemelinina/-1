@@ -26,24 +26,40 @@ def fetch_student_data(year, program):
     try:
         session = requests.Session()
         
-        # Шаг 1: Запрашиваем общую страницу за выбранный год (бакалавриат, очная форма)
+        # 1. Маскируемся под браузер Chrome, чтобы сайт БРС нас не блокировал
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
+        })
+        
+        # 2. Запрашиваем страницу (k=1 - бакалавриат, f=1 - очная форма)
         response = session.get(BASE_URL, params={'y': year, 'k': 1, 'f': 1})
         response.encoding = 'utf-8'
+        
+        if response.status_code != 200:
+            st.error(f"Сайт БРС недоступен (Код ошибки: {response.status_code})")
+            return pd.DataFrame(data)
+
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Словарь для связи коротких названий из UI с длинными названиями на сайте СПБГЭУ
+        # Словарь для поиска. Учтите, что направлений Менеджмент и Экономика на сайте много,
+        # скрипт выберет первое попавшееся (например, профиль "Логистика" для Менеджмента).
         program_keywords = {
-            "ПМ": "Прикладная математика и информатика",
+            "ПМ": "Прикладная математика",
             "БИ": "Бизнес-информатика",
             "Менеджмент": "Менеджмент",
             "Экономика": "Экономика"
         }
         keyword = program_keywords.get(program, program)
         
-        # Шаг 2: Ищем ссылку на конкретное направление
+        # 3. Ищем фильтр "Направление"
         prog_filter = soup.find(lambda tag: tag.name == "b" and "Направление" in tag.text)
+        
         if not prog_filter:
             st.error(f"Не найден фильтр направлений для {year} года.")
+            # Отладочный блок: покажет, что именно ответил сайт, если нас всё-таки заблокировали
+            with st.expander("Посмотреть HTML-ответ сайта (для отладки)"):
+                st.code(soup.prettify()[:1500])
             return pd.DataFrame(data)
             
         prog_url = None
@@ -53,17 +69,17 @@ def fetch_student_data(year, program):
                 break
                 
         if not prog_url:
-            st.error(f"Направление, содержащее '{keyword}', не найдено на сайте в {year} году.")
+            st.error(f"Направление '{keyword}' не найдено на сайте в {year} году.")
             return pd.DataFrame(data)
             
-        # Шаг 3: Переходим на страницу выбранного направления
+        # 4. Переходим на страницу выбранного направления
         full_prog_url = prog_url if prog_url.startswith('http') else f"https://rating.unecon.ru/{prog_url}"
         time.sleep(REQUEST_TIMEOUT)
         prog_resp = session.get(full_prog_url)
         prog_resp.encoding = 'utf-8'
         prog_soup = BeautifulSoup(prog_resp.text, 'html.parser')
         
-        # Шаг 4: Теперь фильтр групп точно доступен, собираем их
+        # 5. Собираем группы
         group_filter = prog_soup.find(lambda tag: tag.name == "b" and "Группа" in tag.text)
         if not group_filter:
             st.error("Не удалось найти список групп для этого направления.")
@@ -76,7 +92,7 @@ def fetch_student_data(year, program):
                 full_url = href if href.startswith('http') else f"https://rating.unecon.ru/{href}"
                 groups.append(full_url)
 
-        # Шаг 5: Обходим каждую группу и все ее семестры
+        # 6. Обходим каждую группу и её семестры
         for group_url in groups:
             time.sleep(REQUEST_TIMEOUT) 
             group_resp = session.get(group_url)
