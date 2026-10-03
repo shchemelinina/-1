@@ -7,18 +7,12 @@ import plotly.express as px
 from datetime import timedelta
 import re
 
-# ==========================================
-# 1. КОНФИГУРАЦИЯ И НАСТРОЙКИ
-# ==========================================
 st.set_page_config(page_title="Аналитика БРС", layout="wide")
 
 BASE_URL = "https://rating.unecon.ru/index.php"
 CACHE_TTL = timedelta(days=30)
 REQUEST_TIMEOUT = 1.5 
 
-# ==========================================
-# 2. МОДУЛЬ ПАРСИНГА С КЭШИРОВАНИЕМ
-# ==========================================
 
 @st.cache_data(ttl=CACHE_TTL)
 def fetch_student_data(year, program):
@@ -26,13 +20,13 @@ def fetch_student_data(year, program):
     try:
         session = requests.Session()
         
-        # 1. Маскируемся под браузер Chrome, чтобы сайт БРС нас не блокировал
+        # маскировка под браузер Chrome, чтобы брс не блокировал
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
         })
         
-        # 2. Запрашиваем страницу (k=1 - бакалавриат, f=1 - очная форма)
+        # запрашиваем страницу (k=1 - бакалавриат, f=1 - очная форма)
         response = session.get(BASE_URL, params={'y': year, 'k': 1, 'f': 1})
         response.encoding = 'utf-8'
         
@@ -42,7 +36,7 @@ def fetch_student_data(year, program):
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Словарь для поиска.
+        # словарь для поиска
         program_keywords = {
             "ПМ": "Прикладная математика",
             "БИ": "Бизнес-информатика",
@@ -51,7 +45,7 @@ def fetch_student_data(year, program):
         }
         keyword = program_keywords.get(program, program)
         
-        # 3. Ищем фильтр "Направление"
+        # поиск фильтра "Направление"
         prog_filter = soup.find(lambda tag: tag.name == "b" and "Направление" in tag.text)
         
         if not prog_filter:
@@ -70,14 +64,14 @@ def fetch_student_data(year, program):
             st.error(f"Направление '{keyword}' не найдено на сайте в {year} году.")
             return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
-        # 4. Переходим на страницу выбранного направления
+        # переход на страницу выбранного направления
         full_prog_url = prog_url if prog_url.startswith('http') else f"https://rating.unecon.ru/{prog_url}"
         time.sleep(REQUEST_TIMEOUT)
         prog_resp = session.get(full_prog_url)
         prog_resp.encoding = 'utf-8'
         prog_soup = BeautifulSoup(prog_resp.text, 'html.parser')
         
-        # 5. Собираем группы
+        # сбор групп
         group_filter = prog_soup.find(lambda tag: tag.name == "b" and "Группа" in tag.text)
         if not group_filter:
             st.error("Не удалось найти список групп для этого направления.")
@@ -90,7 +84,7 @@ def fetch_student_data(year, program):
                 full_url = href if href.startswith('http') else f"https://rating.unecon.ru/{href}"
                 groups.append(full_url)
 
-        # 6. Обходим каждую группу и её семестры
+        # обход каждой группы и её семестры
         for group_url in groups:
             time.sleep(REQUEST_TIMEOUT) 
             group_resp = session.get(group_url)
@@ -181,9 +175,7 @@ def fetch_student_data(year, program):
     
     return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
 
-# ==========================================
-# 3. ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ (БОКОВАЯ ПАНЕЛЬ)
-# ==========================================
+# интерфейс стимлита
 st.sidebar.header("Параметры анализа")
 
 years = ["2023", "2024", "2025", "2026"]
@@ -203,7 +195,7 @@ if df_prog1.empty and df_prog2.empty:
     st.warning("Нет данных для отображения. Проверьте правильность HTML-селекторов парсера.")
     st.stop()
 
-# Фильтрация скрытых студентов
+# фильтр скрытых студентов
 valid_students_prog1 = df_prog1[df_prog1['ФИО'] != "информации нет"]['ФИО'].unique() if not df_prog1.empty else []
 target_student = st.sidebar.selectbox("Целевой студент (для анализа)", valid_students_prog1)
 
@@ -211,9 +203,7 @@ valid_all_students = pd.concat([df_prog1, df_prog2])
 valid_all_students = valid_all_students[valid_all_students['ФИО'] != "информации нет"]['ФИО'].unique() if not valid_all_students.empty else []
 compare_student = st.sidebar.selectbox("Студент для сравнения", valid_all_students)
 
-# ==========================================
-# 4. ДАШБОРД
-# ==========================================
+# дашборд
 st.title("Дашборд аналитики успеваемости БРС")
 
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -225,11 +215,11 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 df_all = pd.concat([df_prog1, df_prog2]).drop_duplicates()
 
-# --- Вкладка 1: Сравнение групп ---
+# 1: Сравнение групп 
 with tab1:
     st.header("Сравнение академических групп")
     
-    # Формируем раздельные списки групп для каждого направления
+    # формируем раздельные списки групп для каждого направления
     groups_list_1 = df_prog1['Группа'].dropna().unique()
     groups_list_2 = df_prog2['Группа'].dropna().unique()
     
@@ -238,19 +228,18 @@ with tab1:
     else:
         col1, col2 = st.columns(2)
         with col1:
-            # Меню 1 берет данные только из Направления 1
+            # в первом выпадабщем списке группы 1 навправления 
             group_a = st.selectbox(f"Первая группа ({prog1} - {year1})", groups_list_1, index=0)
         with col2:
-            # Меню 2 берет данные только из Направления 2
-            # Если направления совпадают, выбираем вторую группу в списке (чтобы не сравнивать группу саму с собой)
+            # во втором - группы 2 навправления 
             default_idx2 = 1 if (prog1 == prog2 and year1 == year2 and len(groups_list_2) > 1) else 0
             group_b = st.selectbox(f"Вторая группа ({prog2} - {year2})", groups_list_2, index=default_idx2)
             
-        # Фильтруем данные по выбранным группам
+        # фильтр данных по выбранным группам
         data_g1 = df_all[df_all['Группа'] == group_a]
         data_g2 = df_all[df_all['Группа'] == group_b]
         
-        # Поиск пересекающихся семестров
+        # поиск пересекающихся семестров
         sems1 = set(data_g1['Семестр'].dropna().unique())
         sems2 = set(data_g2['Семестр'].dropna().unique())
         intersecting_sems = sorted(list(sems1.intersection(sems2)))
@@ -264,10 +253,9 @@ with tab1:
             valid_g2 = data_g2[(data_g2['Семестр'].isin(intersecting_sems)) & (data_g2['Балл'].notna())]
             valid_combined_groups = pd.concat([valid_g1, valid_g2])
             
-            # --- ИСПРАВЛЕННЫЙ БЛОК ДЛЯ ПЕРВОГО ГРАФИКА ---
             avg_sem_groups = valid_combined_groups.groupby(['Семестр', 'Группа'])['Балл'].mean().reset_index()
             
-            # Преобразуем числовой семестр в строковый тип, чтобы Plotly построил категориальную ось
+            # преобразую числовой семестр в строковый тип, чтобы Plotly построил категориальную ось
             avg_sem_groups['Семестр'] = avg_sem_groups['Семестр'].astype(str) + " семестр"
             
             fig_sem = px.bar(
@@ -281,12 +269,11 @@ with tab1:
                 labels={'Балл': 'Средний балл', 'Семестр': 'Период обучения'}
             )
             
-            # Жестко фиксируем ось Y от 0 до 100 для адекватного визуального сравнения
+            # фиксируем ось Y от 0 до 100 визуального сравнения
             fig_sem.update_yaxes(range=[0, 100])
             st.plotly_chart(fig_sem, use_container_width=True)
-            # ---------------------------------------------
             
-            # График по смежным предметам
+            # график по смежным предметам
             subjs1 = set(valid_g1['Предмет'].unique())
             subjs2 = set(valid_g2['Предмет'].unique())
             intersecting_subjs = sorted(list(subjs1.intersection(subjs2)))
@@ -302,7 +289,7 @@ with tab1:
             else:
                 st.info("В общих семестрах нет совпадающих дисциплин.")
 
-# --- Вкладка 2: Сравнение направлений ---
+#  2: Сравнение направлений
 with tab2:
     st.header("Сравнение направлений")
     prog_sems1 = set(df_prog1['Семестр'].dropna().unique())
@@ -320,7 +307,7 @@ with tab2:
     else:
         st.warning("Нет общих семестров для сравнения направлений.")
 
-# --- Вкладка 3: Студент vs Группа ---
+# 3: Студент vs Группа 
 with tab3:
     st.header("Сравнение со средней успеваемостью группы")
     if target_student:
@@ -329,12 +316,12 @@ with tab3:
         if not target_data.empty:
             target_group = target_data['Группа'].iloc[0]
             
-            # Среднее по группе целевого студента
+            # среднее по группе целевого студента
             group_data = df_prog1[(df_prog1['Группа'] == target_group) & (df_prog1['Балл'].notna())]
             avg_group = group_data.groupby('Семестр')['Балл'].mean().reset_index()
             avg_group['Субъект'] = f'Среднее ({target_group})'
             
-            # Данные самого студента
+            # данные самого студента
             target_sem_avg = target_data.groupby('Семестр')['Балл'].mean().reset_index()
             target_sem_avg['Субъект'] = target_student
             
@@ -348,7 +335,7 @@ with tab3:
         else:
             st.warning("Нет данных по оценкам для данного студента.")
 
-# --- Вкладка 4: Сравнение студентов ---
+# 4: Сравнение студентов
 with tab4:
     st.header("Индивидуальное сравнение студентов")
     
