@@ -229,16 +229,24 @@ df_all = pd.concat([df_prog1, df_prog2]).drop_duplicates()
 with tab1:
     st.header("Сравнение академических групп")
     
-    all_groups_list = df_all['Группа'].dropna().unique()
-    if len(all_groups_list) < 2:
-        st.info("Недостаточно групп для сравнения.")
+    # Формируем раздельные списки групп для каждого направления
+    groups_list_1 = df_prog1['Группа'].dropna().unique()
+    groups_list_2 = df_prog2['Группа'].dropna().unique()
+    
+    if len(groups_list_1) == 0 or len(groups_list_2) == 0:
+        st.info("В одном из выбранных направлений нет доступных групп для сравнения.")
     else:
         col1, col2 = st.columns(2)
         with col1:
-            group_a = st.selectbox("Первая группа", all_groups_list, index=0)
+            # Меню 1 берет данные только из Направления 1
+            group_a = st.selectbox(f"Первая группа ({prog1} - {year1})", groups_list_1, index=0)
         with col2:
-            group_b = st.selectbox("Вторая группа", all_groups_list, index=1)
+            # Меню 2 берет данные только из Направления 2
+            # Если направления совпадают, выбираем вторую группу в списке (чтобы не сравнивать группу саму с собой)
+            default_idx2 = 1 if (prog1 == prog2 and year1 == year2 and len(groups_list_2) > 1) else 0
+            group_b = st.selectbox(f"Вторая группа ({prog2} - {year2})", groups_list_2, index=default_idx2)
             
+        # Фильтруем данные по выбранным группам
         data_g1 = df_all[df_all['Группа'] == group_a]
         data_g2 = df_all[df_all['Группа'] == group_b]
         
