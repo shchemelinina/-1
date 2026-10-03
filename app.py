@@ -38,12 +38,11 @@ def fetch_student_data(year, program):
         
         if response.status_code != 200:
             st.error(f"Сайт БРС недоступен (Код ошибки: {response.status_code})")
-            return pd.DataFrame(data)
+            return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Словарь для поиска. Учтите, что направлений Менеджмент и Экономика на сайте много,
-        # скрипт выберет первое попавшееся (например, профиль "Логистика" для Менеджмента).
+        # Словарь для поиска.
         program_keywords = {
             "ПМ": "Прикладная математика",
             "БИ": "Бизнес-информатика",
@@ -57,10 +56,9 @@ def fetch_student_data(year, program):
         
         if not prog_filter:
             st.error(f"Не найден фильтр направлений для {year} года.")
-            # Отладочный блок: покажет, что именно ответил сайт, если нас всё-таки заблокировали
             with st.expander("Посмотреть HTML-ответ сайта (для отладки)"):
                 st.code(soup.prettify()[:1500])
-            return pd.DataFrame(data)
+            return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
         prog_url = None
         for opt in prog_filter.find_next('div', class_='options').find_all('a', class_='option'):
@@ -70,7 +68,7 @@ def fetch_student_data(year, program):
                 
         if not prog_url:
             st.error(f"Направление '{keyword}' не найдено на сайте в {year} году.")
-            return pd.DataFrame(data)
+            return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
         # 4. Переходим на страницу выбранного направления
         full_prog_url = prog_url if prog_url.startswith('http') else f"https://rating.unecon.ru/{prog_url}"
@@ -83,7 +81,7 @@ def fetch_student_data(year, program):
         group_filter = prog_soup.find(lambda tag: tag.name == "b" and "Группа" in tag.text)
         if not group_filter:
             st.error("Не удалось найти список групп для этого направления.")
-            return pd.DataFrame(data)
+            return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
         groups = []
         for opt in group_filter.find_next('div', class_='options').find_all('a', class_='option'):
@@ -258,12 +256,27 @@ with tab1:
             valid_g2 = data_g2[(data_g2['Семестр'].isin(intersecting_sems)) & (data_g2['Балл'].notna())]
             valid_combined_groups = pd.concat([valid_g1, valid_g2])
             
-            # График средних баллов по семестрам
+            # --- ИСПРАВЛЕННЫЙ БЛОК ДЛЯ ПЕРВОГО ГРАФИКА ---
             avg_sem_groups = valid_combined_groups.groupby(['Семестр', 'Группа'])['Балл'].mean().reset_index()
-            fig_sem = px.bar(avg_sem_groups, x='Семестр', y='Балл', color='Группа', barmode='group', 
-                             title="Средняя успеваемость групп по общим семестрам",
-                             labels={'Балл': 'Средний балл', 'Семестр': 'Номер семестра'})
+            
+            # Преобразуем числовой семестр в строковый тип, чтобы Plotly построил категориальную ось
+            avg_sem_groups['Семестр'] = avg_sem_groups['Семестр'].astype(str) + " семестр"
+            
+            fig_sem = px.bar(
+                avg_sem_groups, 
+                x='Семестр', 
+                y='Балл', 
+                color='Группа', 
+                barmode='group', 
+                title="Средняя успеваемость групп по общим семестрам",
+                text_auto='.1f', # Добавляем цифры на столбики
+                labels={'Балл': 'Средний балл', 'Семестр': 'Период обучения'}
+            )
+            
+            # Жестко фиксируем ось Y от 0 до 100 для адекватного визуального сравнения
+            fig_sem.update_yaxes(range=[0, 100])
             st.plotly_chart(fig_sem, use_container_width=True)
+            # ---------------------------------------------
             
             # График по смежным предметам
             subjs1 = set(valid_g1['Предмет'].unique())
