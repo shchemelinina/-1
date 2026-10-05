@@ -45,7 +45,7 @@ def fetch_student_data(year, program):
         }
         keyword = program_keywords.get(program, program)
         
-        # поиск фильтра "Направление"
+        # поиск фильтра <b>Направление</b>
         prog_filter = soup.find(lambda tag: tag.name == "b" and "Направление" in tag.text)
         
         if not prog_filter:
@@ -55,9 +55,10 @@ def fetch_student_data(year, program):
             return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
         prog_url = None
+        # перебор направлений на сайте и ищет совпадение с тем что выбрали
         for opt in prog_filter.find_next('div', class_='options').find_all('a', class_='option'):
-            if keyword.lower() in opt.text.lower():
-                prog_url = opt.get('href')
+            if keyword.lower() in opt.text.lower(): # проверяем является ли ссылка на выбранное направление
+                prog_url = opt.get('href') # если все ок, вытаскиваем юрл адрес страницы - хреф
                 break
                 
         if not prog_url:
@@ -113,22 +114,22 @@ def fetch_student_data(year, program):
                 else:
                     sem_soup = group_soup
                     
-                table = sem_soup.find('table')
+                table = sem_soup.find('table') # ищем таблицу с баллами
                 if not table:
                     continue
                 
-                group_header = sem_soup.find('h3')
+                group_header = sem_soup.find('h3') # вытаскиваем название группы из заголовка страницы
                 group_name = group_header.text.replace('Группа:', '').strip() if group_header else "Неизвестно"
                 
                 current_sem_filter = sem_soup.find(lambda tag: tag.name == "b" and "Семестр" in tag.text)
                 semester_num = 1
                 if current_sem_filter:
                     sem_text = current_sem_filter.find_next('div', class_='selected_text').text
-                    match = re.search(r'(\d+)', sem_text)
+                    match = re.search(r'(\d+)', sem_text) # регулярное выражение для получения номера семестра
                     if match:
                         semester_num = int(match.group(1))
 
-                thead = table.find('thead')
+                thead = table.find('thead') # заголовки колонок тег
                 if not thead: continue
                 
                 header_rows = thead.find_all('tr')
@@ -141,11 +142,11 @@ def fetch_student_data(year, program):
                     subj_name = full_title.split('(')[0].strip() if '(' in full_title else full_title
                     subjects.append(subj_name)
                     
-                tbody = table.find('tbody')
+                tbody = table.find('tbody') # тег студента
                 if not tbody: continue
                 
                 for row in tbody.find_all('tr'):
-                    cols = row.find_all('td')
+                    cols = row.find_all('td') # сбор всех ячеек 
                     if len(cols) < 3:
                         continue
                         
@@ -154,10 +155,10 @@ def fetch_student_data(year, program):
                         student_name = "информации нет" 
                         
                     for i, subj in enumerate(subjects):
-                        col_idx = i + 2
-                        if col_idx < len(cols) - 1: 
-                            score_text = cols[col_idx].text.strip()
-                            score = float(score_text) if score_text.replace('.', '', 1).isdigit() else None
+                        col_idx = i + 2 # колонка с оценкой 
+                        if col_idx < len(cols) - 1: # проверка на выход за пределы ячеек
+                            score_text = cols[col_idx].text.strip() # берем оценку
+                            score = float(score_text) if score_text.replace('.', '', 1).isdigit() else None #nпревращаем в число
                             
                             if score is not None:
                                 data.append({
@@ -195,7 +196,7 @@ if df_prog1.empty and df_prog2.empty:
     st.warning("Нет данных для отображения. Проверьте правильность HTML-селекторов парсера.")
     st.stop()
 
-# фильтр скрытых студентов
+# очистка скрытых студентов + уникальные списки стдентов
 valid_students_prog1 = df_prog1[df_prog1['ФИО'] != "информации нет"]['ФИО'].unique() if not df_prog1.empty else []
 target_student = st.sidebar.selectbox("Целевой студент (для анализа)", valid_students_prog1)
 
@@ -255,9 +256,10 @@ with tab1:
             
             avg_sem_groups = valid_combined_groups.groupby(['Семестр', 'Группа'])['Балл'].mean().reset_index()
             
-            # преобразую числовой семестр в строковый тип, чтобы Plotly построил категориальную ось
+            # преобразую числовой семестр в строковый тип, чтобы Plotly построил  ось
             avg_sem_groups['Семестр'] = avg_sem_groups['Семестр'].astype(str) + " семестр"
-            
+
+            # столбчатая диграмма
             fig_sem = px.bar(
                 avg_sem_groups, 
                 x='Семестр', 
@@ -265,7 +267,7 @@ with tab1:
                 color='Группа', 
                 barmode='group', 
                 title="Средняя успеваемость групп по общим семестрам",
-                text_auto='.1f', # Добавляем цифры на столбики
+                text_auto='.1f', # добавление цифр на столбики
                 labels={'Балл': 'Средний балл', 'Семестр': 'Период обучения'}
             )
             
