@@ -15,51 +15,18 @@ REQUEST_TIMEOUT = 1.5
 
 
 @st.cache_data(ttl=CACHE_TTL)
-def fetch_programs(year):
-    """Динамически парсит доступные направления бакалавриата для выбранного года."""
-    programs = []
-    try:
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
-        })
-        
-        # k=1 - строго бакалавриат, f=1 - очная форма
-        response = session.get(BASE_URL, params={'y': year, 'k': 1, 'f': 1})
-        response.encoding = 'utf-8'
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            prog_filter = soup.find(lambda tag: tag.name == "b" and "Направление" in tag.text)
-            
-            if prog_filter:
-                options_div = prog_filter.find_next('div', class_='options')
-                if options_div:
-                    for opt in options_div.find_all('a', class_='option'):
-                        href = opt.get('href')
-                        prog_name = opt.text.strip()
-                        # Отсекаем пустые значения или сбросы фильтров, если они есть
-                        if prog_name and href and 'p=all' not in href and 'p=none' not in href:
-                            programs.append(prog_name)
-    except Exception as e:
-        st.error(f"Ошибка при получении списка направлений: {e}")
-        
-    return programs if programs else ["Данные не найдены"]
-
-
-@st.cache_data(ttl=CACHE_TTL)
 def fetch_student_data(year, program):
     data = []
     try:
         session = requests.Session()
         
+        # маскировка под браузер Chrome, чтобы брс не блокировал
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
         })
         
-        # k=1 - бакалавриат, f=1 - очная форма
+        # запрашиваем страницу (k=1 - бакалавриат, f=1 - очная форма)
         response = session.get(BASE_URL, params={'y': year, 'k': 1, 'f': 1})
         response.encoding = 'utf-8'
         
@@ -69,9 +36,16 @@ def fetch_student_data(year, program):
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Искомое направление теперь передается в исходном виде с сайта
-        keyword = program
+        # словарь для поиска
+        program_keywords = {
+            "ПМ": "Прикладная математика",
+            "БИ": "Бизнес-информатика",
+            "Менеджмент": "Менеджмент",
+            "Экономика": "Экономика"
+        }
+        keyword = program_keywords.get(program, program)
         
+        # поиск фильтра "Направление"
         prog_filter = soup.find(lambda tag: tag.name == "b" and "Направление" in tag.text)
         
         if not prog_filter:
@@ -82,7 +56,7 @@ def fetch_student_data(year, program):
             
         prog_url = None
         for opt in prog_filter.find_next('div', class_='options').find_all('a', class_='option'):
-            if keyword.lower() == opt.text.strip().lower():
+            if keyword.lower() in opt.text.lower():
                 prog_url = opt.get('href')
                 break
                 
@@ -90,12 +64,14 @@ def fetch_student_data(year, program):
             st.error(f"Направление '{keyword}' не найдено на сайте в {year} году.")
             return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
             
+        # переход на страницу выбранного направления
         full_prog_url = prog_url if prog_url.startswith('http') else f"https://rating.unecon.ru/{prog_url}"
         time.sleep(REQUEST_TIMEOUT)
         prog_resp = session.get(full_prog_url)
         prog_resp.encoding = 'utf-8'
         prog_soup = BeautifulSoup(prog_resp.text, 'html.parser')
         
+        # сбор групп
         group_filter = prog_soup.find(lambda tag: tag.name == "b" and "Группа" in tag.text)
         if not group_filter:
             st.error("Не удалось найти список групп для этого направления.")
@@ -108,6 +84,7 @@ def fetch_student_data(year, program):
                 full_url = href if href.startswith('http') else f"https://rating.unecon.ru/{href}"
                 groups.append(full_url)
 
+        # обход каждой группы и её семестры
         for group_url in groups:
             time.sleep(REQUEST_TIMEOUT) 
             group_resp = session.get(group_url)
@@ -198,25 +175,17 @@ def fetch_student_data(year, program):
     
     return pd.DataFrame(data, columns=["Год", "Направление", "Группа", "ФИО", "Семестр", "Предмет", "Балл"])
 
-# Поиск индекса для Прикладной математики по умолчанию
-def get_default_prog_index(programs_list):
-    for i, p in enumerate(programs_list):
-        if "прикладная математика" in p.lower():
-            return i
-    return 0
-
 # интерфейс стимлита
 st.sidebar.header("Параметры анализа")
 
 years = ["2023", "2024", "2025", "2026"]
+programs = ["ПМ", "БИ", "Менеджмент", "Экономика"] 
 
 year1 = st.sidebar.selectbox("Год поступления 1", years, index=2)
-programs1 = fetch_programs(year1)
-prog1 = st.sidebar.selectbox("Направление обучения 1", programs1, index=get_default_prog_index(programs1))
+prog1 = st.sidebar.selectbox("Направление обучения 1", programs, index=0)
 
 year2 = st.sidebar.selectbox("Год поступления 2", years, index=1)
-programs2 = fetch_programs(year2)
-prog2 = st.sidebar.selectbox("Направление обучения 2", programs2, index=get_default_prog_index(programs2))
+prog2 = st.sidebar.selectbox("Направление обучения 2", programs, index=0)
 
 with st.spinner('Загрузка и парсинг данных...'):
     df_prog1 = fetch_student_data(year1, prog1)
@@ -250,6 +219,7 @@ df_all = pd.concat([df_prog1, df_prog2]).drop_duplicates()
 with tab1:
     st.header("Сравнение академических групп")
     
+    # формируем раздельные списки групп для каждого направления
     groups_list_1 = df_prog1['Группа'].dropna().unique()
     groups_list_2 = df_prog2['Группа'].dropna().unique()
     
@@ -258,14 +228,18 @@ with tab1:
     else:
         col1, col2 = st.columns(2)
         with col1:
+            # в первом выпадабщем списке группы 1 навправления 
             group_a = st.selectbox(f"Первая группа ({prog1} - {year1})", groups_list_1, index=0)
         with col2:
+            # во втором - группы 2 навправления 
             default_idx2 = 1 if (prog1 == prog2 and year1 == year2 and len(groups_list_2) > 1) else 0
             group_b = st.selectbox(f"Вторая группа ({prog2} - {year2})", groups_list_2, index=default_idx2)
             
+        # фильтр данных по выбранным группам
         data_g1 = df_all[df_all['Группа'] == group_a]
         data_g2 = df_all[df_all['Группа'] == group_b]
         
+        # поиск пересекающихся семестров
         sems1 = set(data_g1['Семестр'].dropna().unique())
         sems2 = set(data_g2['Семестр'].dropna().unique())
         intersecting_sems = sorted(list(sems1.intersection(sems2)))
@@ -281,6 +255,7 @@ with tab1:
             
             avg_sem_groups = valid_combined_groups.groupby(['Семестр', 'Группа'])['Балл'].mean().reset_index()
             
+            # преобразую числовой семестр в строковый тип, чтобы Plotly построил категориальную ось
             avg_sem_groups['Семестр'] = avg_sem_groups['Семестр'].astype(str) + " семестр"
             
             fig_sem = px.bar(
@@ -290,13 +265,15 @@ with tab1:
                 color='Группа', 
                 barmode='group', 
                 title="Средняя успеваемость групп по общим семестрам",
-                text_auto='.1f', 
+                text_auto='.1f', # Добавляем цифры на столбики
                 labels={'Балл': 'Средний балл', 'Семестр': 'Период обучения'}
             )
             
+            # фиксируем ось Y от 0 до 100 визуального сравнения
             fig_sem.update_yaxes(range=[0, 100])
             st.plotly_chart(fig_sem, use_container_width=True)
             
+            # график по смежным предметам
             subjs1 = set(valid_g1['Предмет'].unique())
             subjs2 = set(valid_g2['Предмет'].unique())
             intersecting_subjs = sorted(list(subjs1.intersection(subjs2)))
@@ -339,10 +316,12 @@ with tab3:
         if not target_data.empty:
             target_group = target_data['Группа'].iloc[0]
             
+            # среднее по группе целевого студента
             group_data = df_prog1[(df_prog1['Группа'] == target_group) & (df_prog1['Балл'].notna())]
             avg_group = group_data.groupby('Семестр')['Балл'].mean().reset_index()
             avg_group['Субъект'] = f'Среднее ({target_group})'
             
+            # данные самого студента
             target_sem_avg = target_data.groupby('Семестр')['Балл'].mean().reset_index()
             target_sem_avg['Субъект'] = target_student
             
